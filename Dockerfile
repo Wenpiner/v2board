@@ -5,6 +5,8 @@
 ############################
 FROM --platform=$BUILDPLATFORM composer:2 AS vendor
 WORKDIR /app
+# Laravel 8 已 EOL，所有版本都有安全公告；Composer 2.9+ 默认会在解析阶段拦截，这里关闭拦截
+ENV COMPOSER_NO_SECURITY_BLOCKING=1
 COPY composer.json ./
 RUN composer install \
       --no-dev --no-scripts --no-autoloader --no-interaction \
@@ -22,7 +24,7 @@ COPY --from=mlocati/php-extension-installer:latest /usr/bin/install-php-extensio
 COPY --from=composer:2 /usr/bin/composer /usr/local/bin/composer
 
 RUN apk add --no-cache nginx supervisor tzdata bash ca-certificates \
- && install-php-extensions pdo_mysql redis igbinary pcntl bcmath zip opcache sockets \
+ && install-php-extensions pdo_mysql redis igbinary pcntl bcmath zip sockets \
  && mkdir -p /run/nginx /data
 
 WORKDIR /www
