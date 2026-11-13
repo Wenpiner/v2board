@@ -7,16 +7,20 @@ services:
       - "8080:80"
     environment:
       TZ: Asia/Shanghai
-      APP_URL: http://localhost:8080
+      APP_URL: ${APP_URL:-}
+      # 首次启动时用于创建管理员；ADMIN_PASSWORD 留空则随机生成并打印在容器日志中
+      ADMIN_EMAIL: ${ADMIN_EMAIL:?请在 .env 中设置 ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      # 主机名和端口是 compose 内部网络地址，固定写死，避免被 .env 中的 127.0.0.1/localhost 覆盖
       DB_CONNECTION: mysql
       DB_HOST: mysql
       DB_PORT: 3306
-      DB_DATABASE: v2board
-      DB_USERNAME: v2board
-      DB_PASSWORD: change_me_db_password
+      DB_DATABASE: ${DB_DATABASE}
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      REDIS_PASSWORD: "null"
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-null}
       CACHE_DRIVER: redis
       QUEUE_CONNECTION: redis
       SESSION_DRIVER: redis
@@ -26,7 +30,7 @@ services:
       mysql:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
 
   mysql:
     image: mysql:9.7
@@ -37,10 +41,11 @@ services:
       - --collation-server=utf8mb4_unicode_ci
     environment:
       TZ: Asia/Shanghai
-      MYSQL_ROOT_PASSWORD: change_me_root_password
-      MYSQL_DATABASE: v2board
-      MYSQL_USER: v2board
-      MYSQL_PASSWORD: change_me_db_password
+      # 复用 .env 中 v2board 的数据库配置，保证两边一致（仅在 ./data/mysql 首次初始化时生效）
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?请在 .env 中设置 MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DB_DATABASE}
+      MYSQL_USER: ${DB_USERNAME}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
     volumes:
       - ./data/mysql:/var/lib/mysql
     healthcheck:
@@ -53,6 +58,22 @@ services:
     image: redis:8-alpine
     container_name: v2board-redis
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    # REDIS_PASSWORD 为空或为 null（Laravel 表示无密码的写法）时不启用密码
+    command:
+      - sh
+      - -c
+      - |
+        if [ -n "$$REDIS_PASSWORD" ] && [ "$$REDIS_PASSWORD" != "null" ]; then
+          exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"
+        else
+          exec redis-server --appendonly yes
+        fi
+    healthcheck:
+      test: ["CMD-SHELL", 'if [ -n "$$REDIS_PASSWORD" ] && [ "$$REDIS_PASSWORD" != "null" ]; then export REDISCLI_AUTH="$$REDIS_PASSWORD"; fi; redis-cli ping | grep -q PONG']
+      interval: 10s
+      timeout: 5s
+      retries: 10
     volumes:
       - ./data/redis:/data
